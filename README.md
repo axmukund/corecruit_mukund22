@@ -1,2 +1,5 @@
-# corecruit_mukund22
-Repository for co-recruit project
+# Co-Recruit Repository
+
+Repository for the co-recruit project
+
+To be updated as the project continues to evolve
