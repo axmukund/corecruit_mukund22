@@ -295,20 +295,21 @@ p = p + geom_hline(yintercept = d5_baseline_threshold,
                    linetype = "dashed")
 p = p + geom_vline(xintercept = d2_baseline_threshold,
                    linetype = "dashed")
-p = p + theme_bw()
-
 p = p + geom_point(aes(x = med_d2,
                        y = med_d5,
                        color = baseline_type))
 p = p + labs(x = "Act. Control-paired log(ON:OFF)",
              y = "Rep. Control-paired log(ON:OFF)")
 p = p + scale_color_manual(name = "", values = acr_colors)
-p = p + guides(colour = guide_legend(override.aes = list(size = 3)))
+p = p + guides(colour = guide_legend(override.aes = list(size = 2)))
+p = p + theme_linedraw() + theme(panel.grid = element_blank(), legend.position = c(0.75, 0.25),
+                                 legend.text = element_text(size = 8), legend.margin = unit(0, "mm"))
+
 ggsave(
     "./baseline_d2_d5_scatter.pdf",
     p, 
     height = 3,
-    width = 4)
+    width = 3)
 
 write_csv(baseline_df, "./baseline_scores.csv")
 
