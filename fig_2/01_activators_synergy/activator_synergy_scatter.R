@@ -50,7 +50,7 @@ df %>%
     dplyr::mutate(
         baseline_sum_d2 = d1_med_d2 + d2_med_d2,
         baseline_sum_d5 = d1_med_d5 + d2_med_d5) -> df
-write_csv("./pairs_baselinesums.csv")
+write_csv(df, "./pairs_baselinesums.csv")
 
 df %>%
     dplyr::mutate(
@@ -63,33 +63,51 @@ df %>%
     ) %>%
     dplyr::filter(composition %in% c("C-C", "A-A")) -> adf
 
+
 p1 = ggplot(data = adf)
+p1 = p1 + geom_hline(yintercept = d2_threshold,
+                     color = "#bababa",
+                     linetype = "solid")
+p1 = p1 + geom_vline(xintercept = d2_threshold,
+                     color = "#bababa",
+                     linetype = "solid")
 p1 = p1  + geom_point(aes(x = baseline_sum_d2, y = avg_enrichment_d2, color = makeup),
                       size = 0.75)
-p1 = p1 + geom_hline(yintercept = d2_threshold, color = "#bababa", linetype = "solid")
-p1 = p1 + geom_vline(xintercept = d2_threshold, color = "#bababa", linetype = "solid")
-p1 = p1 + geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed")
+p1 = p1 + geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "#777777",
+    linetype = "dashed"
+)
 p1 = p1 + geom_text_repel(
-    data = dplyr::filter(
-        adf,
-        paste(d1_Gene, d2_Gene, sep =
-                  '-') %in% c("ANM2-KIBRA",
-                              "MYBA-ZN473")
-    ),
+    data = dplyr::filter(adf,
+                         paste(d1_Gene, d2_Gene, sep =
+                                   '-') %in% c("ANM2-KIBRA",
+                                               "NOTC2-ANM2",
+                                               "NOTC2-KIBRA")),
     aes(
         label = paste(d1_Gene, d2_Gene, sep = '-'),
         x = baseline_sum_d2,
         y = avg_enrichment_d2
     ),
     min.segment.length = 0,
-    nudge_x = c(-5, 0), nudge_y = c(0.5, -2)
+    nudge_x = c(-5, 3, 3),
+    nudge_y = c(0.5, 5, -2)
 )
 p1 = p1 + scale_color_manual(
     breaks = c("Ctrl + Ctrl", "Ctrl + Act", "Act + Act"),
     values = c("#777777", "#dbc60d", "#ff8d6e"),
-    guide = guide_legend(override.aes = list(size = 3)), name = "")
-p1 = p1 + coord_fixed(ratio = 10/11, xlim=c(-4, 7), ylim=c(-4.5, 5.5))
+    guide = guide_legend(override.aes = list(size = 3)),
+    name = ""
+)
+p1 = p1 + coord_fixed(ratio = 10 / 12,
+                      xlim = c(-4, 7),
+                      ylim = c(-4.5, 6.5))
 p1 = p1 + labs(x = "Sum of Control-Paired log2(ON:OFF)", y = "Concatenation log2(ON:OFF)")
 p1 = p1 + theme_bw()
-p1 = p1 + theme(legend.position = c(0.8, 0.2), legend.margin = unit(0, "mm"), panel.grid = element_blank())
-ggsave("./act_scatter.pdf", p1, height = 2.5, width = 3.1)
+p1 = p1 + theme(
+    legend.position = c(0.8, 0.2),
+    legend.margin = margin(-10, 0, 0, 0),
+    panel.grid = element_blank()
+)
+ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)

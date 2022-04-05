@@ -438,5 +438,6 @@ df %>%
             NA_real_,
             avg_enrichment_d5
         )
-    ) -> df
-readr::write_csv(df, "./02_pairs_priored_controlfiltered.csv")
+    ) -> fdf
+readr::write_csv(fdf, "./02_pairs_priored_controlfiltered.csv")
+readr::write_csv(df, "./02_pais_priored_control_UNfiltered.csv")
