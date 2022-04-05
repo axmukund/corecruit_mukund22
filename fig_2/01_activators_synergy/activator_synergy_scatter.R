@@ -111,3 +111,4 @@ p1 = p1 + theme(
     panel.grid = element_blank()
 )
 ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
+ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
