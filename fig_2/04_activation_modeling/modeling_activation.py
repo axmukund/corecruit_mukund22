@@ -7,6 +7,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import os
 import scipy.stats as st
 from tqdm import tqdm
 import scipy.optimize
@@ -102,100 +103,103 @@ print(len(pd_tuples))
 #  print(all_dates)
 #  sys.exit(0)
 
-print("Fitting telegraph model and plotting fits")
+if not os.path.exists("./popt_df.csv"):
+    print("Fitting telegraph model and plotting fits")
 
-#  fig, ax = plt.subplots(6, 4, figsize=(16, 15))
-#  fig, ax = plt.subplots(7, 7, figsize=(19, 26))
-fig, ax = plt.subplots(10, 6, figsize=(22.5, 22.5))
+    #  fig, ax = plt.subplots(6, 4, figsize=(16, 15))
+    #  fig, ax = plt.subplots(7, 7, figsize=(19, 26))
+    fig, ax = plt.subplots(10, 6, figsize=(22.5, 22.5))
 
+    def make_plasmid_plot(plasmid: float, date: str, ax: plt.Axes) -> pd.DataFrame:
+        #  print("\tMaking plot for plasmid", plasmid, "on date", date)
+        df = dx[dx["plasmid"] == plasmid]
+        df = df[df["date"] == date]
+        df = df[df["day"] == 2]
+        df = df[(df["P1"]) & (df["mCherry"])]
+        if df.shape[0] > 5000:
+            df = df.sample(n=4999)
+        if df.shape[0] < 50:
+            print(plasmid, date, df.shape)
 
-def make_plasmid_plot(plasmid: float, date: str, ax: plt.Axes) -> pd.DataFrame:
-    #  print("\tMaking plot for plasmid", plasmid, "on date", date)
-    df = dx[dx["plasmid"] == plasmid]
-    df = df[df["date"] == date]
-    df = df[df["day"] == 2]
-    df = df[(df["P1"]) & (df["mCherry"])]
-    if df.shape[0] > 5000:
-        df = df.sample(n=4999)
-    if df.shape[0] < 50:
-        print(plasmid, date, df.shape)
+        kde = st.gaussian_kde(np.log10(df["mCitrine-A"]))  # fit KDE to log citrine
 
-    kde = st.gaussian_kde(np.log10(df["mCitrine-A"]))  # fit KDE to log citrine
+        bp_guess = 1 - kde.integrate_box_1d(6, 7)
 
-    bp_guess = 1 - kde.integrate_box_1d(6, 7)
+        name = list(df["description"])[0]
 
-    name = list(df["description"])[0]
+        #  print("\tFitting parameters")
+        popt, _ = scipy.optimize.curve_fit(
+            zip_pdf,
+            np.linspace(6, 9),
+            kde.pdf(np.linspace(6, 9)),
+            p0=[bp_guess, 750, 0.25, 0.15, 6.3],
+            bounds=[[1e-5, 1e-5, 0.1, 0.1, 6], [1, 2000, 5, 5, 7.5]],
+        )
+        #     print("Optimal parameters:", popt)
 
-    #  print("\tFitting parameters")
-    popt, _ = scipy.optimize.curve_fit(
-        zip_pdf,
-        np.linspace(6, 9),
-        kde.pdf(np.linspace(6, 9)),
-        p0=[bp_guess, 750, 0.25, 0.15, 6.3],
-        bounds=[[1e-5, 1e-5, 0.1, 0.1, 6], [1, 2000, 5, 5, 7.5]],
+        log_c = np.linspace(5, 10, 500)
+        y = zip_pdf(log_c, *popt)
+        z = np.log10(df["mCitrine-A"])
+
+        a2 = ax.twinx()
+        sns.lineplot(x=log_c, y=y, ax=ax, color="blue")
+        sns.kdeplot(x=z, ax=a2, color="red")
+
+        for a in [ax, a2]:
+            a.set_xlim(5, 10)
+            a.set_xlabel("Log Citrine")
+        ax.set_ylabel("Likelihood")
+        a2.set_ylabel("")
+        a2.set_yticks([])
+        ax.set_title(name + "\n" + date)
+
+        bprime, lmbda, sigma_on, sigma_off, mu_off = popt
+
+        #  print("\tDone!")
+        #     print(f_on, beta_guess, "\t", beta, alpha, k1, gamma, sigma)
+        return pd.DataFrame.from_dict(
+            {
+                "plasmid": [plasmid],
+                "date": [date],
+                "description": [name],
+                "bprime": [bprime],
+                "lambda": [lmbda],
+                "sigma_on": [sigma_on],
+                "sigma_off": [sigma_off],
+                "mu_off": [mu_off],
+            }
+        )
+
+    popt_df = pd.concat(
+        [
+            make_plasmid_plot(pd_tuples[i][0], pd_tuples[i][1], ax.flat[i])
+            for i in tqdm(range(len(pd_tuples)))
+            #  pd.concat(
+            #      [
+            #          make_plasmid_plot(all_plasmids[i], d, ax.flat[i])
+            #          # for i in tqdm(range(3))
+            #          for i in tqdm(range(len(all_plasmids)))
+            #      ]
+            #  )
+            #  for d in all_dates
+        ]
     )
-    #     print("Optimal parameters:", popt)
 
-    log_c = np.linspace(5, 10, 500)
-    y = zip_pdf(log_c, *popt)
-    z = np.log10(df["mCitrine-A"])
-
-    a2 = ax.twinx()
-    sns.lineplot(x=log_c, y=y, ax=ax, color="blue")
-    sns.kdeplot(x=z, ax=a2, color="red")
-
-    for a in [ax, a2]:
-        a.set_xlim(5, 10)
-        a.set_xlabel("Log Citrine")
-    ax.set_ylabel("Likelihood")
-    a2.set_ylabel("")
-    a2.set_yticks([])
-    ax.set_title(name + "\n" + date)
-
-    bprime, lmbda, sigma_on, sigma_off, mu_off = popt
-
-    #  print("\tDone!")
-    #     print(f_on, beta_guess, "\t", beta, alpha, k1, gamma, sigma)
-    return pd.DataFrame.from_dict(
-        {
-            "plasmid": [plasmid],
-            "date": [date],
-            "description": [name],
-            "bprime": [bprime],
-            "lambda": [lmbda],
-            "sigma_on": [sigma_on],
-            "sigma_off": [sigma_off],
-            "mu_off": [mu_off],
-        }
-    )
-
-
-popt_df = pd.concat(
-    [
-        make_plasmid_plot(pd_tuples[i][0], pd_tuples[i][1], ax.flat[i])
-        for i in tqdm(range(len(pd_tuples)))
-        #  pd.concat(
-        #      [
-        #          make_plasmid_plot(all_plasmids[i], d, ax.flat[i])
-        #          # for i in tqdm(range(3))
-        #          for i in tqdm(range(len(all_plasmids)))
-        #      ]
-        #  )
-        #  for d in all_dates
+    custom_lines = [
+        Line2D([0], [0], color="red", lw=4),
+        Line2D([0], [0], color="blue", lw=4),
     ]
-)
+    ax.flat[0].legend(custom_lines, ["Real", "Fit"], loc="center right")
 
-custom_lines = [
-    Line2D([0], [0], color="red", lw=4),
-    Line2D([0], [0], color="blue", lw=4),
-]
-ax.flat[0].legend(custom_lines, ["Real", "Fit"], loc="center right")
+    sns.despine(fig)
+    plt.tight_layout()
 
-sns.despine(fig)
-plt.tight_layout()
+    plt.savefig("./plots/fits.pdf", bbox_inches="tight")
 
-plt.savefig("./plots/fits.pdf", bbox_inches="tight")
-
+    popt_df.to_csv("./popt_df.csv", index=False)
+else:
+    print("Reading parameter dataframe from disk")
+    popt_df = pd.read_csv("./popt_df.csv")
 
 print("Plotting citrine vs beta")
 
@@ -637,11 +641,16 @@ sns.scatterplot(
 )
 
 
-less_df = adf[adf["sum_bprime"] >= adf["combo_bprime"]]
-more_df = adf[adf["sum_bprime"] < adf["combo_bprime"]]
-frac_combo_more = more_df.shape[0] / (more_df.shape[0] + less_df.shape[0]) * 100
-frac_combo_less = less_df.shape[0] / (more_df.shape[0] + less_df.shape[0]) * 100
+combo_less_df = adf[adf["sum_bprime"] >= adf["combo_bprime"]]
+combo_more_df = adf[adf["sum_bprime"] < adf["combo_bprime"]]
+frac_combo_more = (
+    combo_more_df.shape[0] / (combo_more_df.shape[0] + combo_less_df.shape[0]) * 100
+)
+frac_combo_less = (
+    combo_less_df.shape[0] / (combo_more_df.shape[0] + combo_less_df.shape[0]) * 100
+)
 
+print("For bprime, frac_combo_more is", frac_combo_more)
 
 ax.text(x=0.45, y=0.85, s="{:.0f}%".format(frac_combo_more))
 ax.text(x=1.0, y=0.85, s="{:.0f}%".format(frac_combo_less))
@@ -683,13 +692,19 @@ g.plot_joint(
     s=40,
     alpha=0.5,
 )
-#g.plot_marginals(sns.histplot)
+# g.plot_marginals(sns.histplot)
 
 sum_less_df = adf[adf["combo_lambda"] > adf["sum_lambda"]]
 sum_more_df = adf[adf["combo_lambda"] <= adf["sum_lambda"]]
 
-frac_sum_more = more_df.shape[0] / (more_df.shape[0] + less_df.shape[0]) * 100
-frac_sum_less = less_df.shape[0] / (more_df.shape[0] + less_df.shape[0]) * 100
+frac_sum_more = (
+    sum_more_df.shape[0] / (sum_more_df.shape[0] + sum_less_df.shape[0]) * 100
+)
+frac_sum_less = (
+    sum_less_df.shape[0] / (sum_more_df.shape[0] + sum_less_df.shape[0]) * 100
+)
+
+print("For lambda, frac_sum_more is", frac_sum_more)
 
 g.ax_joint.text(x=1100, y=1425, s="{:.0f}%".format(frac_sum_less))
 g.ax_joint.text(x=1325, y=1200, s="{:.0f}%".format(frac_sum_more))
