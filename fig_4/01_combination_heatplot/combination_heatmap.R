@@ -75,13 +75,13 @@ p = ggplot(data = act_hitted, aes(x = med_d2, y = num_hits))
 p = p + geom_smooth(method = "lm", color = "#e15759", size = 0.75, se = FALSE)
 p = p + geom_point(size = 1, color = "#4e79a7")
 p = p + geom_point(size = 0.005, color = "white")
-p = p + geom_text(data = data.frame(x = 0.1, y = 7, label = bquote("Pearson R=0.81")),
+p = p + geom_text(data = data.frame(x = 0.5, y = 7, label = bquote("Pearson R=0.81")),
                   mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-1, 4), ylim = c(0, 7), ratio = 5/7)
 p = p + theme_linedraw() + theme(panel.grid = element_blank())
-p = p + xlab(bquote("Act. Control-Paired" ~ log[2] ~ "(ON:OFF)"))
-p = p + ylab("Num. Activating Pairs w/ Repressors")
-ggsave("./activators_beating_repressors.pdf", p, height = 3, width = 3)
+p = p + xlab(bquote("Act. Ctrl-Paired" ~ log[2] ~ "(ON:OFF)"))
+p = p + ylab("Num. Act. Pairs w/ Reprs.")
+ggsave("./activators_beating_repressors.pdf", p, height = 2.5, width = 2.5)
 
 
 df %>%
@@ -103,13 +103,13 @@ p = ggplot(data = rep_hitted, aes(x = med_d5, y = num_hits))
 p = p + geom_smooth(method = "lm", color = "#e15759", size = 0.75, se = FALSE)
 p = p + geom_point(size = 1, color = "#4e79a7")
 p = p + geom_point(size = 0.005, color = "white")
-p = p + geom_text(data = data.frame(x = -2.6, y = 0, label = bquote("Pearson R=-0.45")),
+p = p + geom_text(data = data.frame(x = -2.25, y = 0, label = bquote("Pearson R=-0.45")),
                   mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3.5, 0), ylim = c(0, 40), ratio = 3.5/40)
 p = p + theme_linedraw() + theme(panel.grid = element_blank())
-p = p + xlab(bquote("Rep. Control-Paired" ~ log[2] ~ "(ON:OFF)"))
-p = p + ylab("Num. Repressing Pairs w/ Activators")
-ggsave("./repressors_beating_activators.pdf", p, height = 3, width = 3)
+p = p + xlab(bquote("Rep. Ctrl-Paired" ~ log[2] ~ "(ON:OFF)"))
+p = p + ylab("Num. Repr. Pairs w/ Acts.")
+ggsave("./repressors_beating_activators.pdf", p, height = 2.5, width = 2.5)
 
 df %>%
     dplyr::mutate(
