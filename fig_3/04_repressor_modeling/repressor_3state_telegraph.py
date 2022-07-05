@@ -478,6 +478,7 @@ def fit_and_plot(
     else:
         printdb("User provided dataframe, no need to load")
     plasmid = list(plasmid_df["plasmid"])[0]
+    descr = list(plasmid_df["description"])[0]
 
     if params is None:
         printdb("Getting fit parameters")
@@ -535,6 +536,8 @@ def fit_and_plot(
 
     plt.tight_layout()
     # plt.show()
+
+    fig.suptitle(descr)
 
     ks, tl, bp, lm, son, y, uo, soff = popt
     param_df = pd.DataFrame.from_dict(
@@ -709,7 +712,7 @@ if __name__ == "__main__":
     plt.close(fig)
 
     screen_df = pd.read_csv(
-        "../../../Co-Recruit Paper/github_repo/fig_3/"
+        "../../../github_repo/fig_3/"
         + "01_repressor_additivity/pairs_baselinesums.csv"
     )
     d1g = list(screen_df["d1_Gene"])
