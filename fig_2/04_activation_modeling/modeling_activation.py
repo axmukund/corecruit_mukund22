@@ -74,12 +74,20 @@ print("Getting data")
 dx1 = pd.read_csv(
     "../02_activator_validations/data/20220303/all_cells_live_mch_gated.csv"
 )
+dx1["description"] = [
+    d if d != "rTetR only" else "U2AF4 - BTK" for d in list(dx1["description"])
+]
 dx1["date"] = "2022-03-03"
 dx2 = pd.read_csv(
     "../02_activator_validations/data/20211115/all_cells_live_mch_gated.csv"
 )
 dx2["date"] = "2021-11-15"
-dx = pd.concat([dx1, dx2])
+dx3 = pd.read_csv(
+    "../02_activator_validations/data/20220824/data/all_cells_live_mch_gated.csv"
+)
+dx3["date"] = "2022-08-24"
+dx = pd.concat([dx1, dx2, dx3])
+dx = dx[dx["description"] != "rTetR only"]
 
 all_plasmids = sorted(list(set(dx["plasmid"])))
 all_dates = sorted(list(set(dx["date"])))
@@ -96,19 +104,20 @@ pd_tuples = [
     for t in list(itertools.product(all_plasmids, all_dates))
     if is_valid_pd_tuple(t[0], t[1])
 ]
-print(len(pd_tuples))
-#  sys.exit(0)
-#  print(list(dx))
-#  print(len(all_plasmids))
-#  print(all_dates)
-#  sys.exit(0)
+print("Fitting activation data for", len(pd_tuples), "validation experiments.")
+# print(len(pd_tuples))
+# sys.exit(0)
+# print(list(dx))
+# print(len(all_plasmids))
+# print(all_dates)
+# sys.exit(0)
 
 if not os.path.exists("./popt_df.csv"):
     print("Fitting telegraph model and plotting fits")
 
     #  fig, ax = plt.subplots(6, 4, figsize=(16, 15))
     #  fig, ax = plt.subplots(7, 7, figsize=(19, 26))
-    fig, ax = plt.subplots(10, 6, figsize=(22.5, 22.5))
+    fig, ax = plt.subplots(10, 7, figsize=(22.5, 26))
 
     def make_plasmid_plot(plasmid: float, date: str, ax: plt.Axes) -> pd.DataFrame:
         #  print("\tMaking plot for plasmid", plasmid, "on date", date)
@@ -377,8 +386,8 @@ bp_popt, pcov = scipy.optimize.curve_fit(
     relu,
     pdf["avg_enrichment_d2"],
     pdf["bprime"],
-    p0=[0, 1, 0],
-    bounds=[[0, 0, -6], [1, 10, 6]],
+    p0=[0.005, 0, 0],
+    bounds=[[0, 0, -0.5], [0.01, 10, 6]],
 )
 xv = np.linspace(-3, 6)
 yv = relu(xv, *bp_popt)
@@ -651,6 +660,7 @@ frac_combo_less = (
 )
 
 print("For bprime, frac_combo_more is", frac_combo_more)
+print("For bprime, frac_combo_less is", frac_combo_less)
 
 ax.text(x=0.45, y=0.85, s="{:.0f}%".format(frac_combo_more))
 ax.text(x=1.0, y=0.85, s="{:.0f}%".format(frac_combo_less))
@@ -705,6 +715,13 @@ frac_sum_less = (
 )
 
 print("For lambda, frac_sum_more is", frac_sum_more)
+print("For lambda, frac_sum_less is", frac_sum_less)
+
+g.ax_joint.text(x=1100, y=1425, s="{:.0f}%".format(frac_sum_less))
+g.ax_joint.text(x=1325, y=1200, s="{:.0f}%".format(frac_sum_more))
+
+g.ax_joint.axline([0, 0], slope=1, color="#777777", linestyle="--", zorder=-10)
+
 
 g.ax_joint.text(x=1100, y=1425, s="{:.0f}%".format(frac_sum_less))
 g.ax_joint.text(x=1325, y=1200, s="{:.0f}%".format(frac_sum_more))
@@ -867,3 +884,5 @@ ax[0].axline((0, 0), slope=1, color="#777777", linestyle="--", lw=2, zorder=-10)
 ax[1].axline((0, 0), slope=1 / 1500, color="#777777", linestyle="--", lw=2, zorder=-10)  # type: ignore
 
 plt.savefig("./plots/est_fon_from_bprime_lamba.pdf", bbox_inches="tight")
+
+pdf.to_csv("./popt_labeled.csv", index=False)

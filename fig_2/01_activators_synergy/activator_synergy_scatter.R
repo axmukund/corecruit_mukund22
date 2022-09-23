@@ -37,8 +37,8 @@ library(gplots)
 library(ComplexHeatmap)
 library(circlize)
 
-d2_threshold  = 0.639
-d5_threshold  = 0.103
+d2_threshold  = -0.0236
+d5_threshold  = 0.771
 
 d2_baseline_threshold = -0.938
 d5_baseline_threshold = -0.300
@@ -56,12 +56,14 @@ df %>%
     dplyr::mutate(
         makeup = case_when(
             composition == "C-C" ~ "Ctrl + Ctrl",
-            (composition == "C-A" | composition == "A-C") ~ "Ctrl + Act",
+            # (composition == "C-A" | composition == "A-C") ~ "Ctrl + Act",
             composition == "A-A" ~ "Act + Act",
+            (composition == "A-D" | composition == "D-A") ~ "Act + Dual",
+            (composition == "D-D") ~ "Dual + Dual",
             TRUE ~ "N/A"
         )
     ) %>%
-    dplyr::filter(composition %in% c("C-C", "A-A")) -> adf
+    dplyr::filter(composition %in% c("C-C", "A-A", "A-D", "D-A", "D-D")) -> adf
 
 
 p1 = ggplot(data = adf)
@@ -71,7 +73,11 @@ p1 = p1 + geom_hline(yintercept = d2_threshold,
 p1 = p1 + geom_vline(xintercept = d2_threshold,
                      color = "#bababa",
                      linetype = "solid")
-p1 = p1  + geom_point(aes(x = baseline_sum_d2, y = avg_enrichment_d2, color = makeup),
+p1 = p1  + geom_point(data = dplyr::filter(adf, makeup!="Ctrl + Ctrl"),
+                      aes(x = baseline_sum_d2, y = avg_enrichment_d2, color = makeup),
+                      size = 0.75)
+p1 = p1  + geom_point(data = dplyr::filter(adf, makeup=="Ctrl + Ctrl"),
+                      aes(x = baseline_sum_d2, y = avg_enrichment_d2, color = makeup),
                       size = 0.75)
 p1 = p1 + geom_abline(
     slope = 1,
@@ -95,8 +101,8 @@ p1 = p1 + geom_text_repel(
     nudge_y = c(0.5, 5, -2)
 )
 p1 = p1 + scale_color_manual(
-    breaks = c("Ctrl + Ctrl", "Ctrl + Act", "Act + Act"),
-    values = c("#777777", "#dbc60d", "#ff8d6e"),
+    breaks = c("Ctrl + Ctrl", "Act + Act", "Act + Dual", "Dual + Dual"),
+    values = c("#777777", "#DBC60D", "#EDAA3E", "#E34A33"),
     guide = guide_legend(override.aes = list(size = 3)),
     name = ""
 )
@@ -106,9 +112,11 @@ p1 = p1 + coord_fixed(ratio = 10 / 12,
 p1 = p1 + labs(x = "Sum of Control-Paired log2(ON:OFF)", y = "Concatenation log2(ON:OFF)")
 p1 = p1 + theme_bw()
 p1 = p1 + theme(
-    legend.position = c(0.8, 0.2),
+    legend.position = c(0.8, 0.18),
     legend.margin = margin(-10, 0, 0, 0),
-    panel.grid = element_blank()
+    panel.grid = element_blank(),
+    legend.key.height = unit(3.5, "mm"),
+    legend.key.width = unit(3, "mm"),
 )
 ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
-ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
+p1
