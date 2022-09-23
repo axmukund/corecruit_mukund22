@@ -45,7 +45,7 @@ d2_color = "#dbc60d"
 df = readr::read_csv('../01_raw_counts/csvs/concatenation_filtered_scored_pairs.csv')
 oligos = read_csv('../01_raw_counts/csvs/base_oligo_library.csv')
 pfam = read_csv('../01_raw_counts/csvs/NucPfam_ReprActStbl_data.csv')
-siltile = read_csv('../01_raw_counts/csvs//SilTile_dfAnalysis.csv')
+siltile = read_csv('../01_raw_counts/csvs/SilTile_dfAnalysis.csv')
 
 pfam %>%
     dplyr::select(
@@ -160,12 +160,14 @@ p = p + geom_point(
         color = sig
     )
 )
+
 p = p + geom_hline(aes(yintercept = c_mean + 2 * c_std),
                    linetype = "dashed")
 p = p + geom_hline(aes(yintercept = c_mean - 2 * c_std),
                    linetype = "dashed")
 p = p + geom_hline(aes(yintercept = c_mean),
-                   linetype = "dashed", color = "#999999")
+                   linetype = "dashed",
+                   color = "#999999")
 p = p + facet_wrap(facets = vars(screen))
 p = p + labs(x = "", y = "Average log(ON:OFF)")
 p = p + coord_fixed(ylim = c(-2, 2), ratio = 1)
@@ -176,27 +178,30 @@ p = p + theme(axis.text.x = element_text(
     hjust = 1
 ),
 legend.position = "none")
-ggsave("./02_control_outliers.pdf", p, height = 4, width = 8)
+ggsave("./02_control_outliers.pdf",
+       p,
+       height = 4,
+       width = 8)
 df = readr::read_csv("./02_pairs_priored.csv")
-df %>%
-    dplyr::mutate(
-        avg_enrichment_d2 = if_else(
-            str_detect(pair, "DMD_control_tiles;ENSG00000198947;;31;"),
-            NA_real_,
-            avg_enrichment_d2
-        )) %>%
-    dplyr::mutate(
-        avg_enrichment_d5 = if_else(
-            str_detect(pair, "DMD_control_tiles;ENSG00000198947;;31;"),
-            NA_real_,
-            avg_enrichment_d5
-        )) %>%
-    dplyr::mutate(
-        avg_enrichment_d5 = if_else(
-            str_detect(pair, "Random_control;;;89"),
-            NA_real_,
-            avg_enrichment_d5
-        )) -> df
+# df %>% # cut this out
+#     dplyr::mutate(
+#         avg_enrichment_d2 = if_else(
+#             str_detect(pair, "DMD_control_tiles;ENSG00000198947;;31;"),
+#             NA_real_,
+#             avg_enrichment_d2
+#         )) %>%
+#     dplyr::mutate(
+#         avg_enrichment_d5 = if_else(
+#             str_detect(pair, "DMD_control_tiles;ENSG00000198947;;31;"),
+#             NA_real_,
+#             avg_enrichment_d5
+#         )) %>%
+#     dplyr::mutate(
+#         avg_enrichment_d5 = if_else(
+#             str_detect(pair, "Random_control;;;89"),
+#             NA_real_,
+#             avg_enrichment_d5
+#         )) -> df
 df %>% # drop d10 data
     dplyr::select(-one_of(Filter(function(x){str_detect(x, "_d10")}, names(df)))) -> df
 readr::write_csv(df, "./02_pairs_priored.csv")
@@ -338,7 +343,7 @@ pair_scores %>%
     ) %>%
     dplyr::filter(if_any(everything(), ~ !is.nan(.))) %>%
     tibble::column_to_rownames("control") -> rep_mat
-rep_mat = subset(rep_mat, rownames(rep_mat) != "Random Control 89") # all NaNs, toss
+#rep_mat = subset(rep_mat, rownames(rep_mat) != "Random Control 89") # all NaNs, toss
 dend = as.dendrogram(hclust(dist(rep_mat)), method = "ward.D2")
 dend = color_branches(dend, k=3, col = c("#7570b3", "#d95f02", "#1b9e77"))
 
