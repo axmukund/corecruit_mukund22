@@ -10,10 +10,10 @@ import scipy.optimize
 import scipy.stats as st
 import seaborn as sns
 from matplotlib.lines import Line2D
-from sklearn.mixture import GaussianMixture
+from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 from tqdm import tqdm
 
-mpl.rcParams["font.sans-serif"] = "Arial"
+
 mpl.rcParams["font.family"] = "sans-serif"
 plt.rcParams["figure.figsize"] = (5, 3)  # type: ignore
 mpl.rcParams["pdf.fonttype"] = 42
@@ -59,6 +59,7 @@ def calculate_a(t: np.ndarray, ks: float, tlag: float) -> np.ndarray:
 def prob_cit_on_simple(
     log_cits: np.ndarray,
     times: np.ndarray,
+    on_frac: float,
     tlag: float,
     lmbda: float,
     sigma_on: float,
@@ -73,6 +74,7 @@ def prob_cit_on_simple(
     Args:
         log_cits (np.ndarray): log 10 of citrine levels
         times (np.ndarray): time in days corresponding to citrine levels
+        on_frac (float): fraction of cells that don't silence
         tlag (float): lag time before silencing begins
         lmbda (float): net ratio of mRNA production to degradation
         sigma_on (float): standard deviation of the ON population
@@ -87,7 +89,11 @@ def prob_cit_on_simple(
     mrna_means = lmbda * (times < tlag) + lmbda * np.exp(-gamma * (times - tlag)) * (
         times >= tlag
     )
-    sigmas = np.array([sigma_on if t <= 2 else sigma_off for t in times])
+
+    sigmas = np.array(
+        [sigma_off if t >= 4 and on_frac < 0.15 else sigma_on for t in times]
+    )
+
     p_m = st.poisson(mrna_means).pmf(mrna_levels.reshape(-1, 1))
     p_c = st.norm(((mrna_levels.reshape(-1, 1) / 600) + mu).reshape(-1, 1), sigmas).pdf(
         log_cits
@@ -98,12 +104,16 @@ def prob_cit_on_simple(
 
 def telegraph_3sm_pdf(
     xdata: np.ndarray,
+    bg_frac: float,
+    on_frac: float,
     ks: float,
     tlag: float,
     bprime: float,
     lmbda: float,
     s_on: float,
     gamma: float,
+    u_sil: float,
+    f_sil: float,
     u_off: float,
     s_off: float,
 ) -> np.ndarray:
@@ -112,12 +122,16 @@ def telegraph_3sm_pdf(
 
     Args:
         xdata (np.ndarray): Mx2 array of time being the 1st col and cit being the 2nd
+        bg_frac (float): fraction of cells background silenced
+        on_frac (float): fraction of cells permanently on
         ks (float): rate of silencing
         tlag (float): lag time before silencing begins
         bprime (float): fraction of cells ON at equilibrium
         lmbda (float): ratio of mRNA production to degradation
         s_on (float): standard deviation of ON population
         gamma (float): net rate of mRNA degradation + dilution
+        u_sil (float): minor steady-state of decaying fluorescence peak
+        f_sil (float): fraction of non-ON population that stays at u_sil
         u_off (float): mean of OFF population
         s_off (float): standard deviation of OFF population
 
@@ -130,20 +144,53 @@ def telegraph_3sm_pdf(
     # cit_range = (np.arange(0, max_mrna) / 600) + min_cit
     # est_mrnas = np.rint(u_off + ((log_cits - u_off) * 600))
 
-    p_active = bprime * calculate_a(times, ks, tlag)
-    p_silent = bprime * (1 - p_active)
-    p_off = 1 - bprime
+    vuln_frac = 1 - bg_frac - on_frac
+    p_active = on_frac + vuln_frac * bprime * calculate_a(times, ks, tlag)
+    p_silent = vuln_frac * bprime * (1 - calculate_a(times, ks, tlag))
+    p_off = bg_frac + vuln_frac * (1 - bprime)
+
+    # p_active = (1 - bg_frac) * bprime * calculate_a(times, ks, tlag)
+    # p_silent = (1 - bg_frac) * bprime * (1 - p_active)
+    # p_off = bg_frac + (1 - bg_frac) * (1 - bprime)
 
     p_cit_active = prob_cit_on_simple(
-        log_cits, np.tile(0, len(log_cits)), tlag, lmbda, s_on, gamma, u_off, s_off
+        log_cits,
+        np.tile(0, len(log_cits)),
+        on_frac,
+        tlag,
+        lmbda,
+        s_on,
+        gamma,
+        u_off,
+        s_off,
     )
     if ks != 0:
         # p_cit_silent = prob_cit_on_silent(
         #     log_cits, times, ks, lmbda, s_on, gamma, u_off, s_off
         # )
-        p_cit_silent = prob_cit_on_simple(
-            log_cits, times, tlag, lmbda, s_on, gamma, u_off, s_off
+        p_cit_silent_quiet = prob_cit_on_simple(
+            log_cits,
+            times,
+            on_frac,
+            tlag,
+            max(lmbda - (600 * (u_sil - u_off)), 0),
+            s_on,
+            gamma,
+            u_sil,
+            s_off,
         )
+        p_cit_silent_off = prob_cit_on_simple(
+            log_cits,
+            times,
+            on_frac,
+            tlag,
+            lmbda,
+            s_on,
+            gamma,
+            u_off,
+            s_off,
+        )
+        p_cit_silent = f_sil * p_cit_silent_quiet + (1 - f_sil) * p_cit_silent_off
     else:
         p_cit_silent = np.array([0 for _ in log_cits])
     p_cit_off = st.norm(u_off, s_off).pdf(log_cits)
@@ -151,8 +198,13 @@ def telegraph_3sm_pdf(
     return p_cit_active * p_active + p_cit_silent * p_silent + p_off * p_cit_off
 
 
-def get_ks_tlag_gamma(
-    times: np.ndarray, log_cits: np.ndarray, u_off: float
+def get_ks_tlag_gamma_peak_offratio(
+    times: np.ndarray,
+    log_cits: np.ndarray,
+    u_off: float,
+    plasmid: float,
+    description: str,
+    on_frac: float,
 ) -> List[float]:
     """
     get_ks_tlag_gamma computes ks, tlag, and gamma from citrine data
@@ -161,17 +213,41 @@ def get_ks_tlag_gamma(
         times (np.ndarray): list of times in days
         log_cits (np.ndarray): list of log citrine values
         u_off (float): mean of OFF population
+        plasmid (float): number of plasmid to be fit
+        on_frac (float): fraction of cells ON at end of recruitment
 
     Returns:
-        List[float]: list of [ks, tlag, gamma]
+        List[float]: list of [ks, tlag, gamma, sil_peak]
     """
     dq = pd.DataFrame.from_dict({"time": times, "citrine": log_cits})
 
     # get fractions on
     dq["on"] = dq["citrine"] >= 8
-    dx = dq.sort_values(by="time").groupby("time").mean().reset_index()
-    ont = list(dx["time"])
-    onv = list(dx["on"])
+
+    def get_locs_fracs_gmm(cits: np.ndarray, d: float) -> pd.DataFrame:
+        bgm = BayesianGaussianMixture(n_components=3).fit(cits.reshape(-1, 1))
+        poff, psil, pon = sorted(list(bgm.means_))
+        ps = [poff[0], psil[0], pon[0]]
+        sds = list(np.sqrt([bgm.covariances_[i][0][0] for i in range(3)]))
+        sds = [sds[list(bgm.means_).index(p)] for p in ps]
+        ws = [list(bgm.weights_)[list(bgm.means_).index(p)] for p in ps]
+        return pd.DataFrame.from_dict(
+            {
+                "peak": ps,
+                "std": sds,
+                "weight": ws,
+                "pop": ["off", "sil", "on"],
+                "t": [d, d, d],
+            }
+        )
+
+    def get_gmm_df() -> pd.DataFrame:
+        return pd.concat(
+            [
+                get_locs_fracs_gmm(np.array(dq[dq["time"] == d]["citrine"]), d)
+                for d in tvals
+            ]
+        )
 
     def get_frac_on(cits: np.ndarray, d: float) -> float:
         """
@@ -185,13 +261,25 @@ def get_ks_tlag_gamma(
             float: fraction of cells on
         """
         # i do not care that this code is repeated at the moment
-        gm = GaussianMixture(n_components=2).fit(cits.reshape(-1, 1))
-        m1, m2 = gm.means_
-        w1, w2 = gm.weights_
-        if m1 < 8 and m2 < 8:  # everything is "off"
-            return onv[ont.index(d)]
-        else:  # return frac in on peak
-            return w1 if m1 > m2 else w2
+        return np.mean(cits > 8)
+
+        gm2 = GaussianMixture(n_components=2).fit(cits.reshape(-1, 1))
+        gm3 = GaussianMixture(n_components=3).fit(cits.reshape(-1, 1))
+        n_comps = (
+            2 if gm2.aic(cits.reshape(-1, 1)) >= gm3.aic(cits.reshape(-1, 1)) else 3
+        )
+        gm = BayesianGaussianMixture(n_components=n_comps).fit(cits.reshape(-1, 1))
+        means = [x[0] for x in gm.means_]
+        mmax = max(means)
+        imax = means.index(mmax)
+        cmax = gm.covariances_[imax][0][0]
+        nmax = st.norm(loc=mmax, scale=cmax)
+        wmax = list(gm.weights_)[imax]
+        return wmax * (nmax.cdf(9) - nmax.cdf(8))
+        if max(means) >= 8:
+            return gm.weights_[means.index(max(means))]
+        else:
+            return 0.0
 
     def get_loc_on(cits: np.ndarray, d) -> float:
         """
@@ -204,6 +292,28 @@ def get_ks_tlag_gamma(
         Returns:
             float: ON peak location
         """
+
+        ddf = get_locs_fracs_gmm(cits, d)
+        won = list(ddf[ddf["pop"] == "on"]["weight"])[0]
+        wsil = list(ddf[ddf["pop"] == "sil"]["weight"])[0]
+        woff = list(ddf[ddf["pop"] == "off"]["weight"])[0]
+        lon = list(ddf[ddf["pop"] == "on"]["peak"])[0]
+        lsil = list(ddf[ddf["pop"] == "sil"]["peak"])[0]
+        loff = list(ddf[ddf["pop"] == "off"]["peak"])[0]
+        # don = list(ddf[ddf["pop"] == "on"]["std"])[0]
+        # dsil = list(ddf[ddf["pop"] == "sil"]["std"])[0]
+        # doff = list(ddf[ddf["pop"] == "off"]["std"])[0]
+
+        ws = [won, wsil, woff]
+        ls = [lon, lsil, loff]
+        # ds = [don, dsil, doff]
+
+        return ls[ws.index(max(ws))]
+        
+
+        loc = (won * lon + wsil * lsil) / (won + wsil)
+        return loc
+
         gm = GaussianMixture(n_components=2).fit(cits.reshape(-1, 1))
         m1, m2 = gm.means_
         w1, w2 = gm.weights_
@@ -211,12 +321,9 @@ def get_ks_tlag_gamma(
         m2 = m2[0]
         m_min = min(m1, m2)
         m_max = max(m1, m2)
-        w_min = w1 if m_min == m1 else w2
         w_max = w1 if m_max == m1 else w2
         if w_max < 0.1:
             return m_min
-        elif w_min < 0.1:
-            return m_max
         else:
             return m_max
 
@@ -224,15 +331,30 @@ def get_ks_tlag_gamma(
     fvals = [get_frac_on(np.array(dq[dq["time"] == d]["citrine"]), d) for d in tvals]
     cvals = [get_loc_on(np.array(dq[dq["time"] == d]["citrine"]), d) for d in tvals]
 
+    gdf = get_gmm_df()
+    if DEBUG:
+        fig, ax = plt.subplots(1, 3, figsize=(14, 4))
+        sns.lineplot(data=gdf, x="t", y="peak", hue="pop", palette="Dark2", ax=ax[0])
+        sns.lineplot(data=gdf, x="t", y="std", hue="pop", palette="Dark2", ax=ax[1])
+        sns.lineplot(data=gdf, x="t", y="weight", hue="pop", palette="Dark2", ax=ax[2])
+        plt.tight_layout()
+        fig.savefig("./plot_telegraph/" + description + "_gmm.pdf", bbox_inches="tight")
+
+    end_off = list(gdf[(gdf["t"] == 5) & (gdf["pop"] == "off")]["weight"])[0]
+    end_sil = list(gdf[(gdf["t"] == 5) & (gdf["pop"] == "sil")]["weight"])[0]
+    f = end_sil / (end_sil + end_off)
+
     start_fon = fvals[0]
 
     def fraction_off_curve(t, ks, tlag):
-        return start_fon * (1 * (t < tlag) + np.exp(-ks * (t - tlag)) * (t >= tlag))
+        return on_frac + (start_fon - on_frac) * (
+            1 * (t < tlag) + np.exp(-ks * (t - tlag)) * (t >= tlag)
+        )
 
-    def peak_decay_curve(t, gamma, tlag):
-        return np.max(cvals) * (t < tlag) + (
-            u_off + (np.max(cvals) - u_off) * np.exp(-gamma * (t - tlag))
-        ) * (t >= tlag)
+    def peak_decay_curve(t, gamma, u_sil, tlag):
+        return u_sil + (np.max(cvals) - u_sil) * np.exp(
+            -gamma * np.maximum(np.zeros(t.shape), (t - tlag))
+        )
 
     fopt, _ = scipy.optimize.curve_fit(
         fraction_off_curve,
@@ -240,46 +362,131 @@ def get_ks_tlag_gamma(
         fvals,
         p0=[5, 1],
         bounds=[[0, 0], [15, 2]],
-        ftol=1e-14,
+        max_nfev=1000,
     )
     ks, t1 = fopt
 
-    copt, _ = scipy.optimize.curve_fit(
-        lambda x, p: peak_decay_curve(x, p, t1),
-        tvals,
-        cvals,
-        p0=[0.5],
-        bounds=[[0.4], [1.0]],
-    )
+    p = list(gdf[(gdf["t"] == 5) & (gdf["pop"] == "sil")]["peak"])[0]
+    if p <= 7:
+        f = 0
+        p = u_off
+
+    if cvals[-1] > 7.25:
+        copt, _ = scipy.optimize.curve_fit(
+            lambda x, y, t: peak_decay_curve(x, y, p, t),
+            tvals,
+            cvals,
+            p0=[0.5, 0.9],
+            bounds=[[0.4, 0.0], [1.0, 2.0]],
+        )
+    else:
+        copt, _ = scipy.optimize.curve_fit(
+            lambda x, y, t: peak_decay_curve(x, y, p, t),
+            [0, 5],
+            [cvals[0], u_off],
+            p0=[0.5, 0.9],
+            bounds=[[0.4, 0.0], [1.0, 2.0]],
+        )
     g = copt[0]
 
-    return [ks, t1, g]
+    # if fvals[-1] < 0.05:
+    #     p = u_off
+    #     g = 0.639
+    # else:
+    #     p = cvals[-1]
+    #     #        p = u_off
+    #     copt, _ = scipy.optimize.curve_fit(
+    #         lambda x, y, t: peak_decay_curve(x, y, p, t),
+    #         tvals,
+    #         cvals,
+    #         p0=[0.5, 0.9],
+    #         bounds=[[0.4, 0.0], [1.0, 2.0]],
+    #     )
+    #     g = copt[0]
+    #     if cvals[-1] > 8:
+    #         g = 0.639
+
+    if DEBUG:
+        fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+        ax[0].set_title("Fraction Off Curve")
+        ax[0].plot(
+            np.linspace(0, 5), fraction_off_curve(np.linspace(0, 5), *fopt), color="red"
+        )
+        ax[0].scatter(tvals, fvals, color="blue")
+        ax[0].set_xlim(0, 5)
+        ax[0].set_ylim(0, 1)
+        ax[1].set_title("Peak Decay Curve")
+        ax[1].plot(
+            np.linspace(0, 5),
+            peak_decay_curve(np.linspace(0, 5), g, p, t1),
+            color="red",
+        )
+        ax[1].scatter(tvals, cvals, color="blue")
+        ax[1].set_xlim(1, 5)
+        ax[1].set_ylim(5.5, 9.5)
+        plt.tight_layout()
+        fig.savefig("./plot_telegraph/" + description + "_ks_params.pdf")
+
+    return [ks, t1, g, p, f]
 
 
 def get_fit_params(
-    times: np.ndarray, log_cits: np.ndarray, plasmid: float
+    times: np.ndarray,
+    log_cits: np.ndarray,
+    plasmid: float,
+    description: str,
+    bg_frac: float,
+    on_frac: float,
 ) -> List[float]:
     """
     get_fit_params returns optimal fit parameters for the telegraph model given data
+    and estimated background silenced fraction
 
     Args:
         times (np.ndarray): numpy array of times
         log_cits (np.ndarray): numpy array of log citrine measurements
         plasmid (float): number corresponding to the plasmid of interest
+        bg_frac (float): fraction of cells background silenced
+        on_frac (float): fraction of cells permanently on
 
     Returns:
         List[float]: list of optimal parameters, in the order:
-            ks, tlag, bprime, lambda, sigma_on, gamma, mu_off, sigma_off
+            bg_frac, ks, tlag, bprime, lambda, sigma_on, gamma, mu_off, sigma_off
     """
     xdata = np.transpose(np.array([times, log_cits]))
 
-    # first, fit beta and lambda to day 0 data
+    # fit mu and sigma to last day data less than 1e7
+    lxdata = xdata[xdata[:, 0] == np.max(xdata[:, 0])]
+    lxdata = lxdata[lxdata[:, 1] <= 7]
+    lkde = st.gaussian_kde(dataset=lxdata[:, 1])
+    lydata = lkde.evaluate(lxdata[:, 1])
+
+    def off_fn(x, mu, sigma):
+        # here we pick super strong silencing params
+        return telegraph_3sm_pdf(
+            x, bg_frac, on_frac, 10, 0, 0, 0, 1e-200, 10, mu, 1.0, mu, sigma
+        )
+
+    # printdb("Fitting mu, sigma")
+    lopt, _ = scipy.optimize.curve_fit(
+        f=off_fn,
+        xdata=lxdata,
+        ydata=lydata,
+        p0=[6.3, 0.5],
+        bounds=[[5.5, 0.1], [7, 1.0]],
+    )
+    fit_m, fit_soff = lopt
+    printdb("\tFound mu={:.2f} and sigma_off={:.2f}".format(fit_m, fit_soff))
+
+    # fit beta and lambda to day 0 data
     zxdata = xdata[xdata[:, 0] == 0]
     zkde = st.gaussian_kde(dataset=zxdata[:, 1])
     zydata = zkde.evaluate(zxdata[:, 1])
 
     def zero_fn(x, bp, lmbda, s_on):
-        return telegraph_3sm_pdf(x, 0, 10, bp, lmbda, s_on, 0, 6.4, 0.25)
+        return telegraph_3sm_pdf(
+            x, bg_frac, on_frac, 0, 10, bp, lmbda, s_on, 0, fit_m, 0.0, fit_m, fit_soff
+        )
 
     # printdb("Fitting beta, lambda")
     zopt, _ = scipy.optimize.curve_fit(
@@ -296,37 +503,53 @@ def get_fit_params(
         )
     )
 
-    # next, fit mu and sigma to last day data less than 1e7
-    lxdata = xdata[xdata[:, 0] == np.max(xdata[:, 0])]
-    lxdata = lxdata[lxdata[:, 1] <= 7]
-    lkde = st.gaussian_kde(dataset=lxdata[:, 1])
-    lydata = lkde.evaluate(lxdata[:, 1])
-
-    def off_fn(x, mu, sigma):
-        # here we pick super strong silencing params
-        return telegraph_3sm_pdf(x, 10, 0, 0, max_mrna, 1e-200, 10, mu, sigma)
-
-    # printdb("Fitting mu, sigma")
-    lopt, _ = scipy.optimize.curve_fit(
-        f=off_fn,
-        xdata=lxdata,
-        ydata=lydata,
-        p0=[6.3, 0.5],
-        bounds=[[5.5, 0.1], [7, 1.0]],
-    )
-    fit_m, fit_soff = lopt
-    printdb("\tFound mu={:.2f} and sigma_off={:.2f}".format(fit_m, fit_soff))
-
     # last, fit ks, tlag, and gamma
     # printdb("Fitting ks, tlag, gamma")
-    fit_k, fit_t, fit_g = get_ks_tlag_gamma(times, log_cits, fit_m)
+    fit_k, fit_t, fit_g, fit_p, fit_f = get_ks_tlag_gamma_peak_offratio(
+        times, log_cits, fit_m, plasmid, description, on_frac
+    )
     fit_k = fit_k if fit_k > 0.1 else 0
 
     printdb(
-        "\tFound ks={:.2f}, tlag={:.2f}, and gamma={:.2f}".format(fit_k, fit_t, fit_g)
+        "\tFound ks={:.2f}, tlag={:.2f}, gamma={:.2f}, u_sil={:.2f}, f_sil={:.2f}".format(
+            fit_k, fit_t, fit_g, fit_p, fit_f
+        )
     )
 
-    return [fit_k, fit_t, fit_b, fit_l, fit_son, fit_g, fit_m, fit_soff]
+    return [
+        bg_frac,
+        on_frac,
+        fit_k,
+        fit_t,
+        fit_b,
+        fit_l,
+        fit_son,
+        fit_g,
+        fit_p,
+        fit_f,
+        fit_m,
+        fit_soff,
+    ]
+
+
+def estimate_bg_frac(rtetr_log_cits: np.ndarray) -> float:
+    """
+    estimate_bg_frac computes background silenced fraction
+
+    Args:
+        rtetr_log_cits (np.ndarray): array of rTetR-only no dox citrine values
+
+    Returns:
+        float: estimated fraction of background silenced cells
+    """
+    gm = GaussianMixture(n_components=2).fit(rtetr_log_cits.reshape(-1, 1))
+    m1, m2 = gm.means_
+    w1, w2 = gm.weights_
+    m1 = m1[0]
+    m2 = m2[0]
+    m_min = min(m1, m2)
+    w_min = w1 if m_min == m1 else w2
+    return w_min
 
 
 def import_repression_data() -> pd.DataFrame:
@@ -352,7 +575,7 @@ def import_repression_data() -> pd.DataFrame:
 
 
 def get_test_histogram_data(
-    plasmid: int = 217, df: Optional[pd.DataFrame] = None
+    plasmid: int = 217, df: Optional[pd.DataFrame] = None, nodox: Optional[bool] = None
 ) -> pd.DataFrame:
     """
     get_test_histogram_data gets test histogram data for a given plasmid
@@ -366,95 +589,18 @@ def get_test_histogram_data(
     if df is None:
         df = import_repression_data()
     df = df[df["plasmid"] == plasmid]
-    df = df[df["dox"] == 1000]
+    if nodox:
+        df = df[df["dox"] == 0]
+    else:
+        df = df[df["dox"] == 1000]
     return df
-
-
-def plot_param_breakdown(params: List[float]) -> plt.Axes:
-    """
-    plot_param_breakdown Plots a breakdown of ON/ACTIVE/SILENT states over time
-
-    Args:
-        params (List[float]): list of parameters:
-            ks, tlag, bprime, lambda, son, gamma, u, soff
-
-    Returns:
-        plt.Axes: axis object of plot
-    """
-    ks, tlag, bprime, lmbda, son, gamma, u, soff = params
-
-    cits = np.linspace(5.5, 9.5, num=1000)
-
-    def get_times(day):
-        return np.array([day for _ in cits])
-
-    def p_active(day):
-        return calculate_a(get_times(day), ks, tlag)
-
-    def p_silent(day):
-        return 1 - p_active(day)
-
-    p_off = 1 - bprime
-
-    def get_off(day):
-        return p_off * st.norm(u, soff).pdf(cits)
-
-    def get_silent(day):
-        return (
-            p_silent(day)
-            * bprime
-            * prob_cit_on_simple(cits, get_times(day), tlag, lmbda, son, gamma, u, soff)
-            # * prob_cit_on_silent(cits, get_times(day), ks, lmbda, son, gamma, u, soff)
-        )
-
-    def get_active(day):
-        return (
-            p_active(day)
-            * bprime
-            * prob_cit_on_simple(cits, get_times(0), tlag, lmbda, son, gamma, u, soff)
-        )
-
-    def get_total(day):
-        return get_active(day) + get_silent(day) + get_off(day)
-
-    daylist = [0, 1, 2, 3, 4, 5]
-    nrows = int(max(1, len(daylist) / 3))
-    ncols = 3
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5 * ncols, 3 * nrows))
-    for i, a in tqdm(enumerate(ax.flat), total=len(ax.flat)):
-        day = daylist[i]
-
-        off = get_off(day)
-        sil = get_silent(day)
-        act = get_active(day)
-        tot = get_total(day)
-
-        xvals = np.tile(cits, 4)
-        yvals = np.concatenate([off, sil, act, tot])
-        labs = np.concatenate(
-            [
-                np.array(["off" for _ in off]),
-                np.array(["sil" for _ in sil]),
-                np.array(["act" for _ in act]),
-                np.array(["tot" for _ in tot]),
-            ]
-        )
-
-        pdf = pd.DataFrame.from_dict({"cit": xvals, "prob": yvals, "type": labs})
-        # pdf = pdf[pdf["type"].isin(["off", "sil"])]
-
-        sns.lineplot(data=pdf, x="cit", y="prob", hue="type", palette="Set2", ax=a)
-
-        a.set_xlim(5.5, 9.5)
-        a.set_xticks([6, 7, 8, 9])
-        a.set_yticks([])
-
-    return ax
 
 
 def fit_and_plot(
     plasmid_df: Union[int, Optional[pd.DataFrame]] = None,
     params: Optional[List[float]] = None,
+    bg_frac: Optional[float] = None,
+    on_frac: Optional[float] = None,
 ):
     """
     fit_and_plot fits the telegraph model to plasmid data and plots the fit
@@ -463,6 +609,8 @@ def fit_and_plot(
         plasmid_df (Union[int, Optional[pd.DataFrame]], optional): plasmid dataframe.
                 Defaults to None.
         params (Optional[List[float]], optional): list of parameters. Defaults to None.
+        bg_frac (Optional[float]): background silent fraction
+        on_frac (Optional[float]): permanently active fraction
 
     Returns:
         [plt.Figure, pd.DataFrame]: dataframe of parameter fits, plot of the fit
@@ -480,21 +628,47 @@ def fit_and_plot(
     plasmid = list(plasmid_df["plasmid"])[0]
     descr = list(plasmid_df["description"])[0]
 
+    if bg_frac is None:
+        nodox_rtetr_df = get_test_histogram_data(126, None, True)
+        nodox_cits = list(nodox_rtetr_df["mCitrine-A"])
+        nodox_cits = [n for n in nodox_cits if n > 0]
+        nodox_cits = np.log10(nodox_cits)
+        bg_frac = estimate_bg_frac(nodox_cits)
+
+    if on_frac is None:
+        # on_frac = 0.0
+        last_df = plasmid_df[plasmid_df["day"] == 5]
+        last_df = last_df[last_df["mCitrine-A"] > 0]
+        gm = GaussianMixture(n_components=2).fit(
+            np.log10(np.array(last_df["mCitrine-A"])).reshape(-1, 1)
+        )
+        m = max(list(gm.means_))
+        idx = list(gm.means_).index(m)
+        on_frac = gm.weights_[idx] if m > 8 else 0
+        # on_frac = np.mean(cits > 7.7)
+        # on_df = last_df[last_df["mCitrine-A"] > 1e8]
+        # on_frac = on_df.shape[0] / last_df.shape[0]
+
     if params is None:
-        printdb("Getting fit parameters")
+        printdb("Getting fit parameters for pAXM" + str(plasmid) + ", " + descr)
+        printdb("\tFound bg_frac={:.2f}, on_frac={:.2f}".format(bg_frac, on_frac))
         plasmid_df = plasmid_df[plasmid_df["mCitrine-A"] > 0]
         times = np.array(plasmid_df["day"])
         lcits = np.log10(np.array(plasmid_df["mCitrine-A"]))
-        popt = get_fit_params(times, lcits, plasmid)
+        popt = get_fit_params(
+            times, lcits, plasmid, descr, bg_frac, on_frac  # type: ignore
+        )
     else:
         printdb("Given parameters, going directly to plotting")
         popt = params
+
+    bg, on, ks, tl, bp, lm, son, y, us, fs, uo, soff = popt
 
     daylist = sorted(list(set(list(plasmid_df["day"]))))
     nrows = int(max(1, len(daylist) / 3))
     ncols = 3
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5 * ncols, 3 * nrows))
-    for i, a in enumerate(ax.flat):
+    for i, a in enumerate(ax.flat):  # type: ignore
         day = int(daylist[i])
         # print(f"Working on day {day:d}")
 
@@ -511,15 +685,31 @@ def fit_and_plot(
             ax=a,
         )
 
-        log_cits = np.linspace(min_cit, max_cit)
+        log_cits = np.linspace(min_cit, max_cit, num=100)
         yvals = popt_fun(log_cits)
         xvals = np.power(10, log_cits)
+        # print(popt, xvals, yvals)
         a.plot(xvals, yvals, color="tab:blue", linestyle="--")
 
         a.set_title("Day " + str(int(day)))
         a.set_xscale("log")
         a.set_xlim(3.16e5, 3.16e9)
         a.set_xticks([1e6, 1e7, 1e8, 1e9])
+
+        if DEBUG:
+            a.axvline(x=uo, linestyle="--", lw=2, color="k")
+
+        if i == 0:
+            a.text(
+                1e6,
+                -2.25,
+                (
+                    "bkgd sil:    {:.2f}   on frac:  {:.2f}      ks:        {:.2f}   tlag:  {:.2f}\n"
+                    + "bprime:      {:.2f}   lambda:   {:.2f}   sigma_on:  {:.2f}   gamma: {:.2f}\n"
+                    + "mean_silent: {:.2f}   frac_silent: {:.2f}   mean_off: {:.2f}    sigma_off: {:.2f}"
+                ).format(bg, on, ks, tl, bp, lm, son, y, us, fs, uo, soff),
+                fontdict={"fontfamily": "monospace"},
+            )
 
     custom_lines = [
         Line2D([0], [0], color="tab:red", lw=4),
@@ -534,21 +724,24 @@ def fit_and_plot(
 
     sns.despine(fig)
 
+    fig.suptitle("pAXM" + str(plasmid).zfill(3) + ", " + descr)
+
     plt.tight_layout()
     # plt.show()
 
-    fig.suptitle(descr)
-
-    ks, tl, bp, lm, son, y, uo, soff = popt
     param_df = pd.DataFrame.from_dict(
         {
             "plasmid": [list(plasmid_df["plasmid"])[0]],
+            "bg": [bg],
+            "on": [on],
             "ks": [ks],
             "tlag": [tl],
             "bprime": [bp],
             "lambda": [lm],
             "s_on": [son],
             "gamma": [y],
+            "u_sil": [us],
+            "f_sil": [fs],
             "u_off": [uo],
             "s_off": [soff],
         }
@@ -559,6 +752,10 @@ def fit_and_plot(
 def fit_all() -> pd.DataFrame:
     df = import_repression_data()
     plasmid_list = sorted(list(set(list(df["plasmid"]))))
+    # plasmid_list = [126, 217] + sorted([73, 80, 83, 84, 61])
+    # plasmid_list = [140, 222]
+    # plasmid_list = [84, 138]
+    # plasmid_list = sorted([84, 138, 73, 80, 83, 61, 126, 217, 140, 222])
 
     def get_descr(p):
         return list(df[df["plasmid"] == p]["description"])[0]
@@ -567,13 +764,20 @@ def fit_all() -> pd.DataFrame:
 
     print("Running telegraph model fits for", len(plasmid_list), "plasmids")
 
+    # first, estimate background silencing
+    nodox_rtetr_df = get_test_histogram_data(126, None, True)
+    nodox_cits = list(nodox_rtetr_df["mCitrine-A"])
+    nodox_cits = [n for n in nodox_cits if n > 0]
+    nodox_cits = np.log10(nodox_cits)
+    bg_frac = estimate_bg_frac(nodox_cits)
+
     dfs = []
     for i, p in tqdm(enumerate(plasmid_list), total=len(plasmid_list)):
         descr = descr_list[i]
         full_p_data = get_test_histogram_data(p, df)
         sample_size = np.min(list(full_p_data.groupby("day").count()["dox"])) - 1
         p_data = full_p_data.groupby("day").sample(n=sample_size)
-        fig, pdf = fit_and_plot(p_data)
+        fig, pdf = fit_and_plot(p_data, None, bg_frac, None)
         fig.savefig("./plot_telegraph/" + descr + "_fit.pdf", bbox_inches="tight")
         dfs.append(pdf)
         plt.close(fig)
@@ -620,11 +824,11 @@ def make_ks_comp_plot(param_df: pd.DataFrame):
 
     r, p = st.pearsonr(plot_df["ks"], plot_df["ks_validation"])
     ax.text(0.1, 3.5, "Pearson\n$R={:.2f}$".format(r))
-    ax.set_xlim(0, 4.5)
-    ax.set_xticks([0, 2, 4])
+    # ax.set_xlim(0, 4.5)
+    # ax.set_xticks([0, 2, 4])
     ax.set_xlabel("Telegraph Model $k_s$")
-    ax.set_ylim(0, 4.5)
-    ax.set_yticks([0, 2, 4])
+    # ax.set_ylim(0, 4.5)
+    # ax.set_yticks([0, 2, 4])
     ax.set_ylabel("3-State Model $k_s$")
 
     return fig
@@ -657,6 +861,8 @@ def get_param_df() -> List[pd.DataFrame]:
         .join(val_df.set_index("plasmid"), how="left", rsuffix="_validation")
         .reset_index()
     )
+
+    print(param_df)
     return [param_df, val_df]
 
 
@@ -693,11 +899,11 @@ def make_ks_screen_scatter(joined_df):
 
     r, p = st.pearsonr(joined_df["avg_enrichment_d5"], joined_df["ks"])
     ax.text(-2.5, 3.35, "Pearson\nR$={:.2f}$".format(r))
-    ax.set_xlim(-5.5, 2.0)
-    ax.set_xticks([-4, -2, 0, 2])
-    ax.set_xlabel("Screen $\log_2$(ON:OFF)") 
-    ax.set_ylim(-0.2, 4.5)
-    ax.set_yticks([0, 2, 4])
+    # ax.set_xlim(-5.5, 2.0)
+    # ax.set_xticks([-4, -2, 0, 2])
+    ax.set_xlabel("Screen $\log_2$(ON:OFF)")
+    # ax.set_ylim(-0.2, 4.5)
+    # ax.set_yticks([0, 2, 4])
     ax.set_ylabel("Telegraph Model $k_s$")
 
     fig.savefig("./plot_telegraph/ks_screen_comparison.pdf", bbox_inches="tight")
@@ -712,8 +918,7 @@ if __name__ == "__main__":
     plt.close(fig)
 
     screen_df = pd.read_csv(
-        "../../../github_repo/fig_3/"
-        + "01_repressor_additivity/pairs_baselinesums.csv"
+        "../../../github_repo/fig_3/" + "01_repressor_additivity/pairs_baselinesums.csv"
     )
     d1g = list(screen_df["d1_Gene"])
     d2g = list(screen_df["d2_Gene"])
