@@ -1,5 +1,13 @@
-colorblind_palette = c("#000000", "#E69F00", "#56B4E9", "#009E73",
-                       "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+colorblind_palette = c(
+    "#000000",
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7"
+)
 library(tidyverse)
 library(ggplot2)
 library(stringr)
@@ -47,56 +55,43 @@ d2_color = "#dbc60d"
 
 df = read_csv('../../fig_1/04_scatter/pairs_baselined.csv')
 df %>%
-    dplyr::mutate(
-        baseline_sum_d2 = d1_med_d2 + d2_med_d2,
-        baseline_sum_d5 = d1_med_d5 + d2_med_d5) -> df
+    dplyr::mutate(baseline_sum_d2 = d1_med_d2 + d2_med_d2,
+                  baseline_sum_d5 = d1_med_d5 + d2_med_d5) -> df
 write_csv(df, "./pairs_baselinesums.csv")
 
 df %>%
     dplyr::mutate(
         makeup = case_when(
             composition == "C-C" ~ "Ctrl + Ctrl",
-            (composition == "C-R" | composition == "R-C") ~ "Ctrl + Rep",
+            # (composition == "C-R" | composition == "R-C") ~ "Ctrl + Rep",
             composition == "R-R" ~ "Rep + Rep",
+            composition %in% c("D-R", "R-D") ~ "Rep + Dual",
+            composition == "D-D" ~ "Dual + Dual",
             TRUE ~ "N/A"
         )
     ) %>%
-    dplyr::filter(composition %in% c("C-C", "R-R")) -> rdf
+    dplyr::filter(composition %in% c("C-C", "R-R", "R-D", "D-R", "D-D")) -> rdf
+rdf$makeup = factor(rdf$makeup,
+                    levels = c("Ctrl + Ctrl", "Dual + Dual", "Rep + Dual", "Rep + Rep"))
 
-
-p1 = ggplot(data = rdf)
+p1 = ggplot(data = dplyr::arrange(rdf, desc(makeup)))
 p1 = p1 + geom_hline(yintercept = d5_threshold,
                      color = "#bababa",
                      linetype = "solid")
 p1 = p1 + geom_vline(xintercept = d5_threshold,
                      color = "#bababa",
                      linetype = "solid")
-p1 = p1  + geom_point(aes(x = baseline_sum_d5, y = avg_enrichment_d5, color = makeup),
-                      size = 0.75)
+p1 = p1  + geom_point(aes(x = baseline_sum_d5, y = avg_enrichment_d5, fill = makeup),
+                      size = 1.0, stroke = 0.15, shape=21, color = "#bababa")
 p1 = p1 + geom_abline(
     slope = 1,
     intercept = 0,
     color = "#777777",
     linetype = "dashed"
 )
-# p1 = p1 + geom_text_repel(
-#     data = dplyr::filter(adf,
-#                          paste(d1_Gene, d2_Gene, sep =
-#                                    '-') %in% c("ANM2-KIBRA",
-#                                                "NOTC2-ANM2",
-#                                                "NOTC2-KIBRA")),
-#     aes(
-#         label = paste(d1_Gene, d2_Gene, sep = '-'),
-#         x = baseline_sum_d2,
-#         y = avg_enrichment_d2
-#     ),
-#     min.segment.length = 0,
-#     nudge_x = c(-5, 3, 3),
-#     nudge_y = c(0.5, 5, -2)
-# )
-p1 = p1 + scale_color_manual(
-    breaks = c("Ctrl + Ctrl", "Ctrl + Rep", "Rep + Rep"),
-    values = c("#777777", "#23bedb", "#be6eff"),
+p1 = p1 + scale_fill_manual(
+    breaks = c("Ctrl + Ctrl", "Dual + Dual", "Rep + Dual", "Rep + Rep"),
+    values = c("#777777", "#be6eff", "#7196ed", "#23bedb"),
     guide = guide_legend(override.aes = list(size = 3)),
     name = ""
 )
@@ -107,9 +102,12 @@ p1 = p1 + labs(x = "Sum of Control-Paired log2(ON:OFF)", y = "Concatenation log2
 p1 = p1 + theme_bw()
 p1 = p1 + theme(
     legend.title = element_blank(),
-    legend.position = c(0.25, 0.875),
+    legend.position = c(0.2125, 0.875),
     legend.margin = margin(-10, 0, 0, 0),
-    panel.grid = element_blank()
+    panel.grid = element_blank(),
+    legend.key.height = unit(3, "mm"),
+    legend.key.width = unit(3, "mm"),
 )
 ggsave("./rep_scatter.pdf", p1, height = 2.75, width = 3.1)
 # ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
+p1
