@@ -261,7 +261,7 @@ df %>%
 
 # control variability plot --------------------------------------------------------------------
 
-genes = c("Control", "FOXO3", "ZNF10")
+genes = c("Control", "FOXO3", "ZNF10", "CRTC2")
 d2_threshold  = 0.639 # i know this because i am from the future
 d5_threshold  = 0.103 # just kidding, this plot was made after the thresholds were computed
 vcdf = df %>%
@@ -286,8 +286,8 @@ vdf = rbind(vcdf, vfdf)
 
 p = ggplot(data = vdf) +
     geom_point(aes(x = d2, y = d5, color = cat)) +
-    scale_color_manual(name = "", values = c("#CCCCCC", "#DBC60D", "#23BEDB"),
-                       labels=c("Control + Control", "FOXO3 + Control", "ZNF10 + Control")) +
+    scale_color_manual(name = "", values = c("#CCCCCC", "#DBC60D", "#0FA616", "#23BEDB"),
+                       labels=c("Control + Control", "CRTC2 + Control", "FOXO3 + Control", "ZNF10 + Control")) +
     guides(colour = guide_legend(override.aes = list(size = 2))) +
     coord_fixed(ratio = 1,
                 xlim = c(-3.5, 5),
@@ -312,6 +312,9 @@ ggsave("./baseline_variability_plot.pdf", p, width = 3, height = 3)
 
 # Computing baseline scores -----------------------------------------------
 oligos = read_csv('../01_raw_counts/csvs/base_oligo_library.csv')
+
+act_thr = 0.19
+rep_thr = 0.19
 
 get_df = function (o) {
     df %>%
@@ -450,9 +453,6 @@ baseline_df$gene = purrr::map(baseline_df$domain, get_gene)
 
 
 # label and plot hits w/ fractional thresholds  ------------------- ------------------- ------------
-
-act_thr = 0.19
-rep_thr = 0.19
 
 bdf = dplyr::filter(baseline_df, baseline_type != "Control")
 
@@ -606,10 +606,20 @@ p
 
 # drawing baseline correlations ------------------------------------------------------------
 
+
 # now we draw them
 # acr_colors = c('#DBC60D', "#999999", "#23BEDB")
+adr_label_colors = c(
+    "Activator" = "#DBC60D",
+    "Repressor" = "#23BEDB",
+    "Dual" = "#0FA616",
+    "Non-hit" = "#999999"
+)
+
 p = ggplot(data = bdf) # dplyr::filter(baseline_df, baseline_type != "Control"))
-p = p + coord_fixed(ratio = 1, xlim = c(-3, 3.5), ylim = c(-3.5, 3))
+p = p + coord_fixed(ratio = 1,
+                    xlim = c(-3, 3.5),
+                    ylim = c(-3.5, 3))
 p = p + geom_point(aes(x = med_d2, #frac_d2,
                        y = med_d5, #frac_d5,
                        color = baseline_type))
@@ -617,23 +627,35 @@ p = p + geom_point(aes(x = med_d2, #frac_d2,
 #                    linetype = "dashed")
 # p = p + geom_vline(xintercept = -0.536, #act_thr, #d2_baseline_threshold,
 #                    linetype = "dashed")
-p = p + xlab(label="Med. Ctrl-Paired Act. log(ON:OFF)")
-p = p + ylab(label="Med. Ctrl-Paired Rep. log(ON:OFF)")
-p = p + scale_color_manual(name = "Effector Type", values = acr_colors,
-                           breaks=c("Activator", "Repressor", "Dual", "Non-hit"))
+p = p + xlab(label = "Med. Ctrl-Paired Act. log(ON:OFF)")
+p = p + ylab(label = "Med. Ctrl-Paired Rep. log(ON:OFF)")
+p = p + scale_color_manual(
+    name = "Effector Type",
+    values = adr_label_colors,
+    breaks = c("Activator", "Repressor", "Dual", "Non-hit")
+)
 p = p + guides(colour = guide_legend(override.aes = list(size = 3, alpha = 1.0)))
 p = p + theme_linedraw() + theme(
     panel.grid = element_blank(),
     legend.position = c(0.78, 0.19),
     legend.text = element_text(size = 7),
     legend.key.height = unit(3.0, "mm"),
-    legend.box.background = element_rect(color="black"),
+    legend.box.background = element_rect(color = "black"),
     legend.title = element_text(size = 9)
 )
 p = p + geom_text_repel(
     data = dplyr::filter(bdf, gene %in% c("CBX1", "FOXO3", "CRTC2", "U2AF4")),
-    aes(x = med_d2, y = med_d5, label = gene), force = 4, box.padding = 3, #max.overlaps = 5,
-    ylim=c(-2.9, 4.5)#, xlim=c(-3, 3)
+    aes(
+        x = med_d2,
+        y = med_d5,
+        label = gene,
+        color = baseline_type
+    ),
+    force = 3,
+    box.padding = 3,
+    max.overlaps = 8,
+    # segment.color = "black",
+    ylim = c(-2.9, 4.75)#, xlim=c(-3, 3)
 )
 p
 
@@ -643,7 +665,7 @@ ggsave("./baseline_d2_d5_scatter.pdf",
        width = 3)
 write_csv(baseline_df, "./baseline_scores.csv")
 
-# pfam correlation ----------------------------------------------------------------------------
+# pfam  act correlation ----------------------------------------------------------------------------
 
 
 # correlation with prior data
@@ -668,27 +690,32 @@ baseline_df %>%
 
 p = ggplot(baseline_priored_df,
            aes(x = med_d2, y = -avg_d2_pri, color = baseline_type))
+# p = p + geom_vline(xintercept = -0.5, color = '#777777', linetype = "dashed")
+p = p + geom_hline(yintercept = -1.94, color = '#777777', linetype = "dashed") # estimate from HT-recruit data
 p = p + geom_point(size = 1.5)
-p = p + geom_text(data = data.frame(x = 0.22, y = 9, label = "Pearson R = 0.82"),
+p = p + geom_text(data = data.frame(x = -2, y = 8, label = "Pearson\nR = 0.82"),
           mapping = aes(x = x, y = y, label = label),
           inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3, 3.5), ylim = c(-7, 9), ratio = 7/16)
-p = p + xlab("Frac. Activating Control Pairs") + ylab("Prior Pfam Screen Act. log(ON:OFF)")
+p = p + xlab("Med. Ctrl-Paired Act. log(ON:OFF)") + ylab("Prior Pfam Screen Act. log(ON:OFF)")
 p = p + theme_linedraw() + theme(panel.grid = element_blank(), legend.position = c(0.775, 0.3))
 p = p + guides(color = guide_legend(override.aes = list(size = 3)))
 p = p + scale_color_manual(name = "", values = acr_colors)
 ggsave("./nucpfam_correlation_act.pdf", p, width = 3.2, height = 3.2)
 p
 
+# pfam  act correlation ----------------------------------------------------------------------------
 
 p = ggplot(baseline_priored_df,
            aes(x = med_d5, y = -avg_d5_pri, color = baseline_type))
+# p = p + geom_vline(xintercept = -0.3, color = '#777777', linetype = "dashed")
+p = p + geom_hline(yintercept = -1, color = '#777777', linetype = "dashed") # estimate from HT-recruit data
 p = p + geom_point(size = 1.5)
 p = p + geom_text(data = data.frame(x = 0.25, y = -6.9, label = "Pearson R = 0.85"),
           mapping = aes(x = x, y = y, label = label),
           inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3.5, 3), ylim = c(-7, 1.5), ratio = 7/8.5)
-p = p + xlab("Frac. Repressing Control Pairs") + ylab("Prior Pfam Screen Rep. log(ON:OFF)")
+p = p + xlab("Med. Ctrl-Paired Act. log(ON:OFF)") + ylab("Prior Pfam Screen Rep. log(ON:OFF)")
 p = p + theme_linedraw() + theme(panel.grid = element_blank(), legend.position = c(0.2, 0.772),
     legend.text = element_text(size = 8),
     legend.key.height = unit(5.0, "mm"),
