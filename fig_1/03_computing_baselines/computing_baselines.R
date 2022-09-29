@@ -704,7 +704,7 @@ p = p + scale_color_manual(name = "", values = acr_colors)
 ggsave("./nucpfam_correlation_act.pdf", p, width = 3.2, height = 3.2)
 p
 
-# pfam  act correlation ----------------------------------------------------------------------------
+# pfam rep correlation ----------------------------------------------------------------------------
 
 p = ggplot(baseline_priored_df,
            aes(x = med_d5, y = -avg_d5_pri, color = baseline_type))
@@ -715,9 +715,9 @@ p = p + geom_text(data = data.frame(x = 0.25, y = -6.9, label = "Pearson R = 0.8
           mapping = aes(x = x, y = y, label = label),
           inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3.5, 3), ylim = c(-7, 1.5), ratio = 7/8.5)
-p = p + xlab("Med. Ctrl-Paired Act. log(ON:OFF)") + ylab("Prior Pfam Screen Rep. log(ON:OFF)")
-p = p + theme_linedraw() + theme(panel.grid = element_blank(), legend.position = c(0.2, 0.772),
-    legend.text = element_text(size = 8),
+p = p + xlab("Med. Ctrl-Paired Rep. log(ON:OFF)") + ylab("Prior Pfam Screen Rep. log(ON:OFF)")
+p = p + theme_linedraw() + theme(panel.grid = element_blank(), legend.position = c(0.215, 0.77),
+    # legend.text = element_text(size = 10),
     legend.key.height = unit(5.0, "mm"),
     # legend.box.background = element_rect(color="black"),
                                  legend.title = element_blank())
