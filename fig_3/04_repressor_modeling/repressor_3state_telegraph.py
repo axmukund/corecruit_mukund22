@@ -652,7 +652,14 @@ def fit_and_plot(
     nrows = int(max(1, len(daylist) / 3))
     ncols = 3
     if on <= 0.1 or on >= 0.8:
-        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(5 * ncols, 3 * nrows))
+        fig, ax = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(4 * ncols, 2 * nrows),
+            gridspec_kw={
+                "hspace": 1.1,
+            },
+        )
         for i, a in enumerate(ax.flat):  # type: ignore
             day = int(daylist[i])
             # print(f"Working on day {day:d}")
@@ -680,15 +687,22 @@ def fit_and_plot(
             a.set_xscale("log")
             # a.set_xlim(3.16e5, 3.16e9)
             a.set_xlim(3.16e5, None)
-            # a.set_xticks([1e6, 1e7, 1e8, 1e9])
+            a.set_xticks([1e6, 1e7, 1e8, 1e9])
+            a.set_ylabel("")
+            a.set_yticks([])
+
+            a.spines["right"].set_visible(False)
+            a.spines["top"].set_visible(False)
+            # a.spines['left'].set_visible(False)
+            # a.spines['bottom'].set_visible(False)
 
             if DEBUG:
                 a.axvline(x=uo, linestyle="--", lw=2, color="k")
 
             if i == 0:
                 a.text(
-                    1e6,
-                    -2.25,
+                    4e5,
+                    -4.5,
                     (
                         "bkgd sil:    {:.2f}   on frac:  {:.2f}      ks:        {:.2f}   tlag:  {:.2f}\n"
                         + "bprime:      {:.2f}   lambda:   {:.2f}   sigma_on:  {:.2f}   gamma: {:.2f}\n"
@@ -696,6 +710,9 @@ def fit_and_plot(
                     ).format(bg, on, ks, tl, bp, lm, son, y, uo, soff),
                     fontdict={"fontfamily": "monospace"},
                 )
+
+        fig.tight_layout()
+        plt.tight_layout()
 
         custom_lines = [
             Line2D([0], [0], color="tab:red", lw=4),
@@ -705,14 +722,16 @@ def fit_and_plot(
             custom_lines,
             ["Data", "Fit"],
             loc="upper left",
-            #        bbox_to_anchor=(1.15, -7),
+            fontsize=14,
+            bbox_to_anchor=(0.7, 1.3),
         )
 
-        sns.despine(fig)
+        fig.suptitle("pAXM" + str(plasmid).zfill(3) + ", " + descr, y=1.04)
 
-        fig.suptitle("pAXM" + str(plasmid).zfill(3) + ", " + descr)
-
+        # sns.despine(fig)
+        fig.tight_layout()
         plt.tight_layout()
+
         # plt.show()
         param_df = pd.DataFrame.from_dict(
             {
@@ -744,6 +763,7 @@ def fit_all() -> pd.DataFrame:
     # plasmid_list = [84, 138]
     # plasmid_list = sorted([84, 138, 73, 80, 83, 61, 126, 217, 140, 222])
     # plasmid_list = [126, 217]
+    # plasmid_list = [126]
 
     def get_descr(p):
         return list(df[df["plasmid"] == p]["description"])[0]
@@ -889,14 +909,15 @@ def make_ks_screen_scatter(joined_df):
         ax=ax,
     )
 
-    # print(joined_df[["avg_enrichment_d5", "ks"]].describe())
+    printdb(joined_df[["avg_enrichment_d5", "ks"]].describe())
+    printdb(str(list(joined_df)))
 
     r, p = st.pearsonr(joined_df["avg_enrichment_d5"], joined_df["ks"])
-    ax.text(-2, 5, "Pearson\nR$={:.2f}$".format(r))
+    ax.text(-2, 4.25, "Pearson\nR$={:.2f}$".format(r))
     ax.set_xlim(-6, 4)
     # ax.set_xticks([-4, -2, 0, 2])
     ax.set_xlabel("Screen $\log_2$(ON:OFF)")
-    ax.set_ylim(-0.5, 6.5)
+    ax.set_ylim(-0.5, 5.5)
     # ax.set_yticks([0, 2, 4])
     ax.set_ylabel("Telegraph Model $k_s$")
 
