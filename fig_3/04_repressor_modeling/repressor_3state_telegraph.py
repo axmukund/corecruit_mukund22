@@ -869,14 +869,14 @@ def make_ks_screen_scatter(joined_df):
     """
     fig, ax = plt.subplots(figsize=(3, 3))
 
-    _ = sns.regplot(
-        data=joined_df,
-        x="avg_enrichment_d5",
-        y="ks",
-        scatter=False,
-        line_kws={"color": "tab:red", "linestyle": "--", "zorder": -10},
-        ci=None,
-    )
+    # _ = sns.regplot(
+    #     data=joined_df,
+    #     x="avg_enrichment_d5",
+    #     y="ks",
+    #     scatter=False,
+    #     line_kws={"color": "tab:red", "linestyle": "--", "zorder": -10},
+    #     ci=None,
+    # )
 
     _ = sns.scatterplot(
         data=joined_df,
