@@ -248,26 +248,7 @@ def get_ks_tlag_gamma(
         Returns:
             float: fraction of cells on
         """
-        # i do not care that this code is repeated at the moment
         return np.mean(cits > 8)
-
-        gm2 = GaussianMixture(n_components=2).fit(cits.reshape(-1, 1))
-        gm3 = GaussianMixture(n_components=3).fit(cits.reshape(-1, 1))
-        n_comps = (
-            2 if gm2.aic(cits.reshape(-1, 1)) >= gm3.aic(cits.reshape(-1, 1)) else 3
-        )
-        gm = BayesianGaussianMixture(n_components=n_comps).fit(cits.reshape(-1, 1))
-        means = [x[0] for x in gm.means_]
-        mmax = max(means)
-        imax = means.index(mmax)
-        cmax = gm.covariances_[imax][0][0]
-        nmax = st.norm(loc=mmax, scale=cmax)
-        wmax = list(gm.weights_)[imax]
-        return wmax * (nmax.cdf(9) - nmax.cdf(8))
-        if max(means) >= 8:
-            return gm.weights_[means.index(max(means))]
-        else:
-            return 0.0
 
     def get_loc_on(cits: np.ndarray, d) -> float:
         """
@@ -349,7 +330,7 @@ def get_ks_tlag_gamma(
         #     -gamma * np.maximum(np.zeros(t.shape), (t - tlag))
         # )
 
-    if bg_frac + on_frac >= 0.9:
+    if bg_frac + on_frac >= 0.85:
         fopt = [0, 0]
         copt = [0]
     else:
@@ -388,7 +369,7 @@ def get_ks_tlag_gamma(
     #     if cvals[-1] > 8:
     #         g = 0.639
 
-    if DEBUG and (on_frac <= 0.1 or on_frac >= 0.8):
+    if DEBUG:
         fig, ax = plt.subplots(1, 2, figsize=(8, 4))
         ax[0].set_title("Fraction Off Curve")
         ax[0].plot(
@@ -651,107 +632,109 @@ def fit_and_plot(
     daylist = sorted(list(set(list(plasmid_df["day"]))))
     nrows = int(max(1, len(daylist) / 3))
     ncols = 3
-    if on <= 0.1 or on >= 0.8:
-        fig, ax = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(4 * ncols, 2 * nrows),
-            gridspec_kw={
-                "hspace": 1.1,
-            },
+    fig, ax = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(4 * ncols, 2 * nrows),
+        gridspec_kw={
+            "hspace": 1.1,
+        },
+    )
+    for i, a in enumerate(ax.flat):  # type: ignore
+        day = int(daylist[i])
+        # print(f"Working on day {day:d}")
+
+        def popt_fun(log_cits: np.ndarray) -> np.ndarray:
+            days = np.array([day for _ in log_cits])
+            xdata = np.transpose(np.array([days, log_cits]))
+            return telegraph_3sm_pdf(xdata, *popt)
+
+        sns.kdeplot(
+            data=plasmid_df[plasmid_df["day"] == day][["mCitrine-A"]],
+            x="mCitrine-A",
+            color="tab:red",
+            log_scale=True,
+            ax=a,
         )
-        for i, a in enumerate(ax.flat):  # type: ignore
-            day = int(daylist[i])
-            # print(f"Working on day {day:d}")
 
-            def popt_fun(log_cits: np.ndarray) -> np.ndarray:
-                days = np.array([day for _ in log_cits])
-                xdata = np.transpose(np.array([days, log_cits]))
-                return telegraph_3sm_pdf(xdata, *popt)
+        log_cits = np.linspace(min_cit, max_cit, num=100)
+        yvals = popt_fun(log_cits)
+        xvals = np.power(10, log_cits)
+        # print(popt, xvals, yvals)
+        a.plot(xvals, yvals, color="tab:blue", linestyle="--")
 
-            sns.kdeplot(
-                data=plasmid_df[plasmid_df["day"] == day][["mCitrine-A"]],
-                x="mCitrine-A",
-                color="tab:red",
-                log_scale=True,
-                ax=a,
+        a.set_title("Day " + str(int(day)))
+        a.set_xscale("log")
+        # a.set_xlim(3.16e5, 3.16e9)
+        a.set_xlim(3.16e5, None)
+        a.set_xticks([1e6, 1e7, 1e8, 1e9])
+        a.set_ylabel("")
+        a.set_yticks([])
+
+        a.spines["right"].set_visible(False)
+        a.spines["top"].set_visible(False)
+        # a.spines['left'].set_visible(False)
+        # a.spines['bottom'].set_visible(False)
+
+        if DEBUG:
+            a.axvline(x=uo, linestyle="--", lw=2, color="k")
+
+        if i == 0:
+            a.text(
+                4e5,
+                -4.5,
+                (
+                    "bkgd sil:    {:.2f}   on frac:  {:.2f}      ks:        {:.2f}   tlag:  {:.2f}\n"
+                    + "bprime:      {:.2f}   lambda:   {:.2f}   sigma_on:  {:.2f}   gamma: {:.2f}\n"
+                    + "mean_off: {:.2f}    sigma_off: {:.2f}"
+                ).format(bg, on, ks, tl, bp, lm, son, y, uo, soff),
+                fontdict={"fontfamily": "monospace"},
             )
 
-            log_cits = np.linspace(min_cit, max_cit, num=100)
-            yvals = popt_fun(log_cits)
-            xvals = np.power(10, log_cits)
-            # print(popt, xvals, yvals)
-            a.plot(xvals, yvals, color="tab:blue", linestyle="--")
+    fig.tight_layout()
+    plt.tight_layout()
 
-            a.set_title("Day " + str(int(day)))
-            a.set_xscale("log")
-            # a.set_xlim(3.16e5, 3.16e9)
-            a.set_xlim(3.16e5, None)
-            a.set_xticks([1e6, 1e7, 1e8, 1e9])
-            a.set_ylabel("")
-            a.set_yticks([])
+    custom_lines = [
+        Line2D([0], [0], color="tab:red", lw=4),
+        Line2D([0], [0], color="tab:blue", lw=4),
+    ]
+    fig.axes[0].legend(
+        custom_lines,
+        ["Data", "Fit"],
+        loc="upper left",
+        fontsize=14,
+        bbox_to_anchor=(0.7, 1.3),
+    )
 
-            a.spines["right"].set_visible(False)
-            a.spines["top"].set_visible(False)
-            # a.spines['left'].set_visible(False)
-            # a.spines['bottom'].set_visible(False)
+    title_suffix = ""
+    yspot = 1.04
+    if not (on < 0.1 or on > 0.75):
+        title_suffix = "\nBad Fit"
+        yspot = 1.10
 
-            if DEBUG:
-                a.axvline(x=uo, linestyle="--", lw=2, color="k")
+    fig.suptitle("pAXM" + str(plasmid).zfill(3) + ", " + descr + title_suffix, y=yspot)
 
-            if i == 0:
-                a.text(
-                    4e5,
-                    -4.5,
-                    (
-                        "bkgd sil:    {:.2f}   on frac:  {:.2f}      ks:        {:.2f}   tlag:  {:.2f}\n"
-                        + "bprime:      {:.2f}   lambda:   {:.2f}   sigma_on:  {:.2f}   gamma: {:.2f}\n"
-                        + "mean_off: {:.2f}    sigma_off: {:.2f}"
-                    ).format(bg, on, ks, tl, bp, lm, son, y, uo, soff),
-                    fontdict={"fontfamily": "monospace"},
-                )
+    # sns.despine(fig)
+    fig.tight_layout()
+    plt.tight_layout()
 
-        fig.tight_layout()
-        plt.tight_layout()
-
-        custom_lines = [
-            Line2D([0], [0], color="tab:red", lw=4),
-            Line2D([0], [0], color="tab:blue", lw=4),
-        ]
-        fig.axes[0].legend(
-            custom_lines,
-            ["Data", "Fit"],
-            loc="upper left",
-            fontsize=14,
-            bbox_to_anchor=(0.7, 1.3),
-        )
-
-        fig.suptitle("pAXM" + str(plasmid).zfill(3) + ", " + descr, y=1.04)
-
-        # sns.despine(fig)
-        fig.tight_layout()
-        plt.tight_layout()
-
-        # plt.show()
-        param_df = pd.DataFrame.from_dict(
-            {
-                "plasmid": [list(plasmid_df["plasmid"])[0]],
-                "bg": [bg],
-                "on": [on],
-                "ks": [ks],
-                "tlag": [tl],
-                "bprime": [bp],
-                "lambda": [lm],
-                "s_on": [son],
-                "gamma": [y],
-                "u_off": [uo],
-                "s_off": [soff],
-            }
-        )
-    else:
-        fig = None
-        param_df = None
-
+    # plt.show()
+    param_df = pd.DataFrame.from_dict(
+        {
+            "plasmid": [list(plasmid_df["plasmid"])[0]],
+            "bg": [bg],
+            "on": [on],
+            "ks": [ks],
+            "tlag": [tl],
+            "bprime": [bp],
+            "lambda": [lm],
+            "s_on": [son],
+            "gamma": [y],
+            "u_off": [uo],
+            "s_off": [soff],
+            "good_fit": [(on < 0.1 or on > 0.75)],
+        }
+    )
     return [fig, param_df]
 
 
@@ -763,7 +746,7 @@ def fit_all() -> pd.DataFrame:
     # plasmid_list = [84, 138]
     # plasmid_list = sorted([84, 138, 73, 80, 83, 61, 126, 217, 140, 222])
     # plasmid_list = [126, 217]
-    # plasmid_list = [126]
+    # plasmid_list = [126, 80, 217]
 
     def get_descr(p):
         return list(df[df["plasmid"] == p]["description"])[0]
@@ -889,6 +872,9 @@ def make_ks_screen_scatter(joined_df):
     """
     fig, ax = plt.subplots(figsize=(3, 3))
 
+    jdf = joined_df[joined_df["good_fit"]]
+    # jdf = joined_df
+
     # _ = sns.regplot(
     #     data=joined_df,
     #     x="avg_enrichment_d5",
@@ -899,7 +885,7 @@ def make_ks_screen_scatter(joined_df):
     # )
 
     _ = sns.scatterplot(
-        data=joined_df,
+        data=jdf,
         x="avg_enrichment_d5",
         y="ks",
         color="white",
@@ -912,12 +898,12 @@ def make_ks_screen_scatter(joined_df):
     printdb(joined_df[["avg_enrichment_d5", "ks"]].describe())
     printdb(str(list(joined_df)))
 
-    r, p = st.pearsonr(joined_df["avg_enrichment_d5"], joined_df["ks"])
-    ax.text(-2, 4.25, "Pearson\nR$={:.2f}$".format(r))
+    r, p = st.pearsonr(jdf["avg_enrichment_d5"], jdf["ks"])
+    ax.text(-2, 3.45, "Pearson\nR$={:.2f}$".format(r))
     ax.set_xlim(-6, 4)
     # ax.set_xticks([-4, -2, 0, 2])
     ax.set_xlabel("Screen $\log_2$(ON:OFF)")
-    ax.set_ylim(-0.5, 5.5)
+    ax.set_ylim(-0.5, 4.5)
     # ax.set_yticks([0, 2, 4])
     ax.set_ylabel("Telegraph Model $k_s$")
 
