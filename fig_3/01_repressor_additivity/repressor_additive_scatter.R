@@ -1,3 +1,5 @@
+# imports -----
+
 colorblind_palette = c(
     "#000000",
     "#E69F00",
@@ -45,11 +47,11 @@ library(gplots)
 library(ComplexHeatmap)
 library(circlize)
 
-d2_threshold  = 0.639
-d5_threshold  = 0.103
+d2_threshold  =  -0.0236
+d5_threshold  = 0.771
 
-d2_baseline_threshold = -0.938
-d5_baseline_threshold = -0.300
+# d2_baseline_threshold = -0.938
+# d5_baseline_threshold = -0.300
 d5_color = "#28bedb"
 d2_color = "#dbc60d"
 
@@ -58,6 +60,8 @@ df %>%
     dplyr::mutate(baseline_sum_d2 = d1_med_d2 + d2_med_d2,
                   baseline_sum_d5 = d1_med_d5 + d2_med_d5) -> df
 write_csv(df, "./pairs_baselinesums.csv")
+
+# plots -----
 
 df %>%
     dplyr::mutate(
@@ -70,7 +74,8 @@ df %>%
             TRUE ~ "N/A"
         )
     ) %>%
-    dplyr::filter(composition %in% c("C-C", "R-R", "R-D", "D-R", "D-D")) -> rdf
+    dplyr::filter(composition %in% c("C-C", "R-R", "R-D", "D-R", "D-D")) %>%
+    dplyr::mutate(pname = paste(d1_Gene, d2_Gene, sep="-")) -> rdf
 rdf$makeup = factor(rdf$makeup,
                     levels = c("Ctrl + Ctrl", "Dual + Dual", "Rep + Dual", "Rep + Rep"))
 
@@ -95,19 +100,32 @@ p1 = p1 + scale_fill_manual(
     guide = guide_legend(override.aes = list(size = 3)),
     name = ""
 )
-p1 = p1 + coord_fixed(ratio = 10 / 10,
-                      xlim = c(-7, 3),
-                      ylim = c(-5, 5))
+p1 = p1 + geom_label_repel(
+    data = dplyr::filter(rdf, pname %in% c("FOXO3-ZNF10", "ZNF10-CBX1", "BIN1-FOXO3")),
+    aes(
+        x = baseline_sum_d5,
+        y = avg_enrichment_d5,
+        label = pname,
+    ),
+    size = 3,
+    ylim = c(-8, -5),
+    force = 10,
+    box.padding = 0.1,
+    max.time = 5,
+    max.iter = 100000
+)
+p1 = p1 + coord_fixed(ratio = 10 / 12,
+                      xlim = c(-7.5, 5),
+                      ylim = c(-7.5, 5))
 p1 = p1 + labs(x = "Sum of Control-Paired log2(ON:OFF)", y = "Concatenation log2(ON:OFF)")
 p1 = p1 + theme_bw()
 p1 = p1 + theme(
     legend.title = element_blank(),
-    legend.position = c(0.2125, 0.875),
+    legend.position = c(0.18, 0.86),
     legend.margin = margin(-10, 0, 0, 0),
     panel.grid = element_blank(),
-    legend.key.height = unit(3, "mm"),
-    legend.key.width = unit(3, "mm"),
+    legend.key.height = unit(2, "mm"),
+    legend.key.width = unit(2, "mm"),
 )
 ggsave("./rep_scatter.pdf", p1, height = 2.75, width = 3.1)
-# ggsave("./act_scatter.pdf", p1, height = 2.75, width = 3.1)
 p1
