@@ -52,8 +52,8 @@ p = p + geom_smooth(formula = y ~ x, method = "lm", size = 0.75,
                     se = FALSE, n = 100, color = "#e15759")
 p = p + geom_point(size = 1, color = "#4e79a7")
 p = p + geom_point(size = 0.005, color = "white")
-p = p + geom_text(data = data.frame(x = -1.3, y = 0.975, label = bquote("Pearson R=0.89")), 
-                  mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE) 
+p = p + geom_text(data = data.frame(x = -1.3, y = 0.975, label = bquote("Pearson R=0.87")),
+                  mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3.5, 2.5), ylim=c(0, 1), ratio = 6)
 p = p + scale_y_continuous(breaks = c(0, 0.5, 1))
 p = p + scale_x_continuous(breaks = c(-3, 0, 3))
@@ -66,8 +66,8 @@ p = ggplot(data = df, aes(x = med_d5, y = b))
 p = p + geom_smooth(method = "lm", size = 0.75, se = FALSE, n = 100, color = "#e15759")
 p = p + geom_point(size = 1, color = "#4e79a7")
 p = p + geom_point(size = 0.005, color = "white")
-p = p + geom_text(data = data.frame(x = -1.3, y = 0.975, label = bquote("Pearson R=0.94")), 
-                  mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE) 
+p = p + geom_text(data = data.frame(x = -1.3, y = 0.975, label = bquote("Pearson R=0.92")),
+                  mapping = aes(x = x, y = y, label = label), inherit.aes = FALSE)
 p = p + coord_fixed(xlim = c(-3.5, 2.5), ylim=c(-3, 1), ratio = 6/4)
 p = p + theme_linedraw() + theme(panel.grid = element_blank())
 p = p + xlab(bquote("Median Rep." ~ log[2](ON:OFF)))
